@@ -15,7 +15,7 @@ from pathlib import Path
 OUTPUT_DIR = Path("output")
 TRADES_CSV = OUTPUT_DIR / "trades.csv"
 
-# ── Load ──────────────────────────────────────────────────────────────────────
+
 
 df = pd.read_csv(TRADES_CSV, parse_dates=["entry_bar", "exit_bar", "event_date"])
 
@@ -29,7 +29,7 @@ df["abs_score"] = df["score_at_entry"].abs()
 score_cap = df["abs_score"].quantile(0.99)
 df_plot = df[df["abs_score"] <= score_cap].copy()
 
-# ── Regression ────────────────────────────────────────────────────────────────
+
 
 slope, intercept, r_value, p_value, se = stats.linregress(
     df_plot["abs_score"], df_plot["return_pct"]
@@ -37,7 +37,7 @@ slope, intercept, r_value, p_value, se = stats.linregress(
 x_line = np.linspace(df_plot["abs_score"].min(), df_plot["abs_score"].max(), 200)
 y_line = slope * x_line + intercept
 
-# ── Bucket analysis ───────────────────────────────────────────────────────────
+
 
 df_plot["score_bucket"] = pd.qcut(df_plot["abs_score"], q=5, labels=["Q1\n(weakest)", "Q2", "Q3", "Q4", "Q5\n(strongest)"])
 bucket_stats = df_plot.groupby("score_bucket", observed=True)["return_pct"].agg(
@@ -47,7 +47,7 @@ bucket_stats = df_plot.groupby("score_bucket", observed=True)["return_pct"].agg(
     n="count",
 )
 
-# ── Dynamic sizing simulation ─────────────────────────────────────────────────
+
 # Flat: 2% NAV per trade (position_size already reflects this)
 # Dynamic: scale position by abs_score / median_score, capped at 4%
 
@@ -70,7 +70,7 @@ dynamic_total = df_plot["dynamic_pnl"].sum()
 flat_cumulative = df_plot.sort_values("entry_bar")["net_pnl"].cumsum()
 dynamic_cumulative = df_plot.sort_values("entry_bar")["dynamic_pnl"].cumsum()
 
-# ── Plot ──────────────────────────────────────────────────────────────────────
+
 
 fig = plt.figure(figsize=(16, 12))
 gs = gridspec.GridSpec(2, 2, hspace=0.38, wspace=0.32)
@@ -138,7 +138,7 @@ fig.savefig(out_path, dpi=150, bbox_inches="tight")
 plt.close(fig)
 print(f"Saved → {out_path}")
 
-# ── Console summary ───────────────────────────────────────────────────────────
+
 
 print("\n=== Signal vs Return Regression ===")
 print(f"  Pearson r    : {r_value:.4f}")

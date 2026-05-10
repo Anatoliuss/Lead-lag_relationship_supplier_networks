@@ -38,7 +38,7 @@ FIXED_PARAMS = dict(
     signal_model="beta_revenue",
 )
 
-# ── Load data once ────────────────────────────────────────────────────────────
+
 
 print("Loading cached bars …")
 bar_data   = load_cached_bars()
@@ -47,7 +47,7 @@ raw_events = load_events(IS_EVENTS_FILE)
 event_results = detect_events(raw_events, bar_data, daily_data)
 print(f"  {len(bar_data)} tickers  |  {len(raw_events)} events")
 
-# ── Sweep ─────────────────────────────────────────────────────────────────────
+
 
 rows = []
 for thr in THRESHOLDS:
@@ -79,7 +79,7 @@ for thr in THRESHOLDS:
 df = pd.DataFrame(rows)
 df.to_csv(OUTPUT_DIR / "threshold_sensitivity_is.csv", index=False)
 
-# ── Plot ──────────────────────────────────────────────────────────────────────
+
 
 fig = plt.figure(figsize=(16, 10))
 gs  = gridspec.GridSpec(2, 3, hspace=0.42, wspace=0.32)

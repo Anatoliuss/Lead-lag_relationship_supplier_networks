@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# ── Core performance metrics ───────────────────────────────────────────────
+
 
 def compute_summary_stats(result: "RunResult") -> dict:
     """Return a dict of scalar performance metrics."""
@@ -113,7 +113,7 @@ def _max_drawdown(nav: pd.Series) -> float:
     return float(dd.min())
 
 
-# ── Breakdown tables ───────────────────────────────────────────────────────
+
 
 def breakdown_by(result: "RunResult", by: str) -> pd.DataFrame:
     """
@@ -151,14 +151,8 @@ def breakdown_by(result: "RunResult", by: str) -> pd.DataFrame:
 
 
 def _sector(primary: str) -> str:
-    from backtest.config import FABLESS_PRIMARIES, FOUNDRY_PRIMARIES, WFE_PRIMARIES
-    if primary in FABLESS_PRIMARIES:
-        return "Fabless"
-    if primary in FOUNDRY_PRIMARIES:
-        return "IDM/Foundry"
-    if primary in WFE_PRIMARIES:
-        return "WFE"
-    return "Other"
+    from backtest.config import ENERGY_PRIMARIES
+    return "Energy" if primary in ENERGY_PRIMARIES else "Defense"
 
 
 def monthly_returns(result: "RunResult") -> pd.DataFrame:
@@ -243,7 +237,7 @@ def underreaction_decay_curve(result: "RunResult") -> pd.DataFrame:
     return summary
 
 
-# ── Charts ─────────────────────────────────────────────────────────────────
+
 
 def _ensure_output() -> Path:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -414,8 +408,8 @@ def plot_score_vs_pnl(result: "RunResult") -> None:
 
 
 def plot_sector_curves(result: "RunResult") -> None:
-    """Separate equity curves by semi sub-industry (Fabless / IDM-Foundry / WFE)."""
-    buckets: dict[str, list[float]] = {"Fabless": [], "IDM/Foundry": [], "WFE": []}
+    """Energy vs Defense equity curves."""
+    buckets: dict[str, list[float]] = {"Energy": [], "Defense": []}
     for t in result.portfolio.closed_trades:
         buckets[_sector(t.signal.primary_ticker)].append(t.net_pnl)
     if not any(buckets.values()):
@@ -436,7 +430,7 @@ def plot_sector_curves(result: "RunResult") -> None:
     plt.close(fig)
 
 
-# ── Output files ───────────────────────────────────────────────────────────
+
 
 def save_all_outputs(
     result: "RunResult",

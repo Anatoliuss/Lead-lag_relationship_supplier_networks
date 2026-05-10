@@ -11,9 +11,8 @@ import numpy as np
 import pandas as pd
 
 from backtest.config import (
-    FABLESS_PRIMARIES,
-    FOUNDRY_PRIMARIES,
-    WFE_PRIMARIES,
+    ENERGY_PRIMARIES,
+    DEFENSE_PRIMARIES,
     ALL_PRIMARIES,
     EVENTS_FILE,
     EVENT_TIMING,
@@ -29,7 +28,7 @@ from backtest.data_loader import _get_trading_days
 log = logging.getLogger(__name__)
 
 
-# ── Data class ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class EventResult:
@@ -56,71 +55,33 @@ class EventResult:
     raw: dict = field(default_factory=dict)   # original Excel row
 
 
-# ── Excel loader ───────────────────────────────────────────────────────────
-
 def load_events(events_file: Path = EVENTS_FILE) -> pd.DataFrame:
-    """
-    Load and clean the events Excel file.
-
-    Returns a DataFrame with columns:
-      date, primary, event_type, description, direction, primary_move,
-      key_dependents, expected_lag_signal
-    """
-    # The workbook has two sheets: "Dependency Map" and "Event Log".
-    # Events live on the Event Log sheet.
+    """Read events from the 'Event Log' sheet of the workbook."""
     xls = pd.ExcelFile(events_file, engine="openpyxl")
-    sheet = next(
-        (s for s in xls.sheet_names if "event" in s.lower()),
-        xls.sheet_names[-1],
-    )
+    sheet = next((s for s in xls.sheet_names if "event" in s.lower()), xls.sheet_names[-1])
     df = pd.read_excel(xls, sheet_name=sheet)
-
-    # Normalise column names
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
 
-    # Rename to expected names (adjust if your Excel has different column names)
-    rename = {
-        "date":               "date",
-        "primary":            "primary",
-        "event_type":         "event_type",
-        "event_description":  "description",
-        "direction":          "direction",
-        "primary_move":       "primary_move",
-        "key_dependents":     "key_dependents",
-        "expected_lag_signal":"expected_lag_signal",
-    }
-    existing = {k: v for k, v in rename.items() if k in df.columns}
-    df = df.rename(columns=existing)
+    rename = {"event_description": "description"}
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
 
-    # Drop section headers (Primary is NaN or starts with "ALL")
     df = df.dropna(subset=["primary"])
     df = df[~df["primary"].astype(str).str.startswith("ALL")]
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
-    df = df.sort_values("date").reset_index(drop=True)
-
-    return df
+    return df.sort_values("date").reset_index(drop=True)
 
 
 def expand_sector_events(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Expand rows where primary is a group token into one row per primary ticker.
-    Supported tokens: ALL (all primaries), ALL-FAB (fabless), ALL-IDM (foundry/IDM),
-    ALL-WFE (equipment). Legacy tokens ALL-E / ALL-D map to fabless / foundry.
-    """
+    """ALL-E / ALL-D / ALL group tokens → one row per primary in that group."""
     group_map = {
-        "ALL":     ALL_PRIMARIES,
-        "ALL-FAB": FABLESS_PRIMARIES,
-        "ALL-IDM": FOUNDRY_PRIMARIES,
-        "ALL-WFE": WFE_PRIMARIES,
-        "ALL-E":   FABLESS_PRIMARIES,    # legacy
-        "ALL-D":   FOUNDRY_PRIMARIES,    # legacy
+        "ALL":   ALL_PRIMARIES,
+        "ALL-E": ENERGY_PRIMARIES,
+        "ALL-D": DEFENSE_PRIMARIES,
     }
 
-    expanded_rows = []
-    regular_rows  = []
-
+    expanded_rows, regular_rows = [], []
     for _, row in df.iterrows():
         primary = str(row.get("primary", "")).strip().upper()
         if primary in group_map:
@@ -130,26 +91,17 @@ def expand_sector_events(df: pd.DataFrame) -> pd.DataFrame:
         else:
             regular_rows.append(row)
 
-    all_rows = regular_rows + expanded_rows
-    result = pd.DataFrame(all_rows).sort_values("date").reset_index(drop=True)
-    return result
+    return pd.DataFrame(regular_rows + expanded_rows).sort_values("date").reset_index(drop=True)
 
 
-# ── Reaction-start logic ───────────────────────────────────────────────────
+
 
 def get_reaction_start(
     event_date: pd.Timestamp,
     event_type: str,
     hourly_index: pd.DatetimeIndex,
 ) -> pd.Timestamp:
-    """
-    Determine the first hourly bar at which the primary's reaction is observable.
-
-    after_close  → 09:30 of the next trading day
-    pre_market   → 09:30 of event_date (gap open)
-    intraday     → 09:30 of event_date (default; no intrabar timing available)
-    mixed        → 09:30 of next trading day (conservative, avoid look-ahead)
-    """
+    """First bar at which the reaction is observable (after_close → next day 09:30)."""
     timing = EVENT_TIMING.get(event_type, "mixed")
     event_day = event_date.normalize()
 
@@ -192,7 +144,7 @@ def _next_trading_day(
     return future_days[0]
 
 
-# ── CAR measurement ────────────────────────────────────────────────────────
+
 
 def measure_car(
     prices:          pd.Series,
@@ -200,21 +152,8 @@ def measure_car(
     start_bar:       pd.Timestamp,
     n_bars:          int,
 ) -> float:
-    """
-    Cumulative Abnormal Return of a stock vs. benchmark over n_bars starting at start_bar.
-
-    Parameters
-    ----------
-    prices           : hourly close prices for the stock (indexed by bar_start Timestamp)
-    benchmark_prices : hourly close prices for the benchmark ETF
-    start_bar        : first bar of the reaction window (exclusive — we need the bar
-                       just before as the base price)
-    n_bars           : number of hourly bars to include
-
-    Returns
-    -------
-    float : cumulative stock return minus cumulative benchmark return
-    """
+    """CAR over n_bars from start_bar = stock_return − benchmark_return.
+    Base price is the close of the bar BEFORE start_bar."""
     try:
         idx       = prices.index.get_loc(start_bar)
     except KeyError:
@@ -245,10 +184,7 @@ def measure_volume_ratio(
     n_event_bars: int = 2,
     lookback_days: int = VOLUME_LOOKBACK_DAYS,
 ) -> float:
-    """
-    Compare volume in the first n_event_bars after start_bar to the 20-day average
-    volume during the same intraday slots.
-    """
+    """Event-window volume / same-slot 20-day baseline (materiality gate)."""
     try:
         start_idx = volumes.index.get_loc(start_bar)
     except KeyError:
@@ -284,7 +220,7 @@ def measure_volume_ratio(
     return float(event_vol / avg_vol_per_event)
 
 
-# ── Main detector ──────────────────────────────────────────────────────────
+
 
 def detect_events(
     raw_events:   pd.DataFrame,

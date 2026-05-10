@@ -26,13 +26,11 @@ from backtest.event_detector import EventResult, measure_car
 log = logging.getLogger(__name__)
 
 
-# ── Data classes ───────────────────────────────────────────────────────────
-
 @dataclass
 class Signal:
     event_date:       pd.Timestamp
     reaction_start:   pd.Timestamp
-    entry_bar:        pd.Timestamp    # reaction_start + entry_delay_hours bars
+    entry_bar:        pd.Timestamp
     primary_ticker:   str
     dependent_ticker: str
     event_type:       str
@@ -41,43 +39,32 @@ class Signal:
     r_squared:  float
     revenue_pct: float
 
-    # Expected dependent CAR at entry bar
-    expected_return_model_a: float   # beta only
-    expected_return_model_b: float   # beta × revenue pct
-
-    # Actual dependent CAR measured up to entry_bar
+    expected_return_model_a: float    # β × CAR_primary
+    expected_return_model_b: float    # β × CAR_primary × revenue_pct
     actual_return: float
 
-    # Underreaction scores (positive = under, negative = over)
     score_model_a: float
     score_model_b: float
 
-    # Direction to trade the dependent
-    # "long"  → primary went up, dependent hasn't caught up yet
-    # "short" → primary went down, dependent hasn't sold off yet
+    # "long" if primary went up (dep should rise to catch up), "short" otherwise
     signal_direction: str
-
     primary_car_at_entry: float
 
-    # Liquidity
     dependent_avg_hourly_volume: float
     is_liquid: bool
     is_hard_to_borrow: bool
 
-    # Hourly underreaction scores for multiple horizons (filled after entry)
     scores_by_horizon: dict[str, float] = field(default_factory=dict)
     actual_returns_by_horizon: dict[str, float] = field(default_factory=dict)
 
-    # Vol-based model state (only populated when model == "vol_based")
-    volatility: float = 0.0           # σ of dep's n-bar return over 20-day lookback
-    expected_return_vol: float = 0.0  # sign(primary_CAR) × σ
-    score_model_vol: float = 0.0      # (expected - actual) / σ, in σ units
+    # Only populated when model == "vol_based"
+    volatility: float = 0.0
+    expected_return_vol: float = 0.0
+    score_model_vol: float = 0.0
 
     skipped: bool = False
     skip_reason: str = ""
 
-
-# ── Beta estimation ────────────────────────────────────────────────────────
 
 def compute_beta(
     daily_data:   dict[str, pd.DataFrame],
@@ -86,12 +73,7 @@ def compute_beta(
     as_of_date:   pd.Timestamp,
     lookback:     int = BETA_LOOKBACK_DAYS,
 ) -> tuple[float, float]:
-    """
-    OLS regression of dependent daily returns on primary daily returns.
-    Uses only data strictly before as_of_date.
-
-    Returns (beta, r_squared).  Returns (1.0, 0.0) on failure.
-    """
+    """OLS slope of dep daily returns on primary daily returns, before as_of_date."""
     if dep_ticker not in daily_data or primary_ticker not in daily_data:
         return 1.0, 0.0
 
@@ -100,12 +82,7 @@ def compute_beta(
 
     dep_ret  = dep_df.loc[dep_df.index < as_of_date, "ret"].dropna()
     prim_ret = prim_df.loc[prim_df.index < as_of_date, "ret"].dropna()
-
-    # Align
-    combined = pd.DataFrame({"dep": dep_ret, "prim": prim_ret}).dropna()
-
-    # Limit to lookback
-    combined = combined.tail(lookback)
+    combined = pd.DataFrame({"dep": dep_ret, "prim": prim_ret}).dropna().tail(lookback)
 
     if len(combined) < 30:
         log.debug("Insufficient data for beta: %s vs %s", dep_ticker, primary_ticker)
@@ -124,8 +101,6 @@ def compute_beta(
 
     return beta, r2
 
-
-# ── Liquidity checks ───────────────────────────────────────────────────────
 
 def _avg_hourly_volume(
     bar_data: dict[str, pd.DataFrame],
@@ -161,17 +136,12 @@ def _has_zero_volume_bars(
     return bool((chunk == 0).any())
 
 
-# ── Entry bar lookup ───────────────────────────────────────────────────────
-
 def get_entry_bar(
     reaction_start: pd.Timestamp,
     entry_delay_hours: int,
     index: pd.DatetimeIndex,
 ) -> Optional[pd.Timestamp]:
-    """
-    Return the bar that is entry_delay_hours bars after reaction_start,
-    respecting day boundaries (skip overnight gaps).
-    """
+    """Bar that is entry_delay_hours bars after reaction_start (positional, not clock)."""
     try:
         start_pos = index.get_loc(reaction_start)
     except KeyError:
@@ -186,8 +156,6 @@ def get_entry_bar(
     return index[target_pos]
 
 
-# ── Underreaction scoring ──────────────────────────────────────────────────
-
 def _score(expected: float, actual: float) -> float:
     if abs(expected) < MIN_EXPECTED_RETURN:
         return 0.0
@@ -195,7 +163,7 @@ def _score(expected: float, actual: float) -> float:
 
 
 def _score_vol(expected: float, actual: float, sigma: float) -> float:
-    """Vol-based score: (expected - actual) / σ, expressed in std-dev units."""
+    """(expected − actual) / σ, in standard-deviation units."""
     if sigma <= 0:
         return 0.0
     return (expected - actual) / sigma
@@ -207,11 +175,8 @@ def _compute_n_bar_vol(
     n_bars: int,
     lookback_days: int = 20,
 ) -> Optional[float]:
-    """
-    Std-dev of n-bar cumulative returns over the last `lookback_days` trading days
-    that ended strictly before ref_bar.  Each sample = (close[open + n_bars - 1] /
-    close[open - 1]) - 1, taken from the same intraday window each day.
-    """
+    """σ of n-bar cumulative returns over the last `lookback_days` trading days
+    before ref_bar.  Sample = close[open + n_bars - 1] / close[open - 1] - 1."""
     if ref_bar not in prices.index or n_bars <= 0:
         return None
     try:
@@ -249,14 +214,8 @@ def _compute_n_bar_vol(
     return float(np.std(rets, ddof=1))
 
 
-# ── Multi-primary overlap ──────────────────────────────────────────────────
-
 def resolve_overlapping_signals(signals: list[Signal]) -> list[Signal]:
-    """
-    For dependents appearing in multiple signals on the same trading day:
-    - Same direction → keep both (higher confidence; caller can increase size)
-    - Conflicting direction → mark both as skipped
-    """
+    """Same dep on same day with conflicting directions → skip both."""
     from collections import defaultdict
     day_dep: dict[tuple, list[Signal]] = defaultdict(list)
 
@@ -276,8 +235,6 @@ def resolve_overlapping_signals(signals: list[Signal]) -> list[Signal]:
     return signals
 
 
-# ── Main signal generator ──────────────────────────────────────────────────
-
 def generate_signals(
     event_results:    list[EventResult],
     bar_data:      dict[str, pd.DataFrame],
@@ -286,15 +243,8 @@ def generate_signals(
     model:            str = "beta_revenue",
     threshold:        float = UNDERREACTION_THRESHOLD,
 ) -> list[Signal]:
-    """
-    For each material event, produce Signal objects for each dependent.
-
-    Parameters
-    ----------
-    entry_delay_hours : bars after reaction_start before entry
-    model             : "beta_only", "beta_revenue", or "vol_based"
-    threshold         : minimum |underreaction_score| to emit a signal
-    """
+    """One Signal per (material event × dependent).
+    model: "beta_only" | "beta_revenue" | "vol_based"."""
     signals: list[Signal] = []
     active_index: Optional[pd.DatetimeIndex] = None
 
@@ -500,7 +450,7 @@ def generate_signals(
     return signals
 
 
-# ── Helper ─────────────────────────────────────────────────────────────────
+
 
 def _make_skipped(
     event: EventResult,

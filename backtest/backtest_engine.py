@@ -37,7 +37,7 @@ from backtest.signal_generator import Signal, generate_signals, _score
 log = logging.getLogger(__name__)
 
 
-# ── Run result ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class RunResult:
@@ -49,7 +49,7 @@ class RunResult:
     daily_snapshots: list[PortfolioSnapshot]
 
 
-# ── Single backtest run ────────────────────────────────────────────────────
+
 
 def run_backtest(
     bar_data:       dict[str, pd.DataFrame],
@@ -64,14 +64,7 @@ def run_backtest(
     initial_capital:   float = INITIAL_CAPITAL,
     eod_exit:          bool  = EXIT_END_OF_DAY,
 ) -> RunResult:
-    """
-    Execute a single backtest with the given parameters.
-
-    Strategy loop (per hourly bar):
-    1. Process exits for open positions.
-    2. Check pending signals whose entry_bar == current_bar → open new trades.
-    3. Take portfolio snapshot.
-    """
+    """Run one backtest. Per hourly bar: check exits, open new trades, snapshot."""
     # Fill gaps
     bar_data = forward_fill_bars(bar_data)
 
@@ -189,7 +182,7 @@ def run_backtest(
     )
 
 
-# ── Parameter sweep ────────────────────────────────────────────────────────
+
 
 def run_sweep(
     bar_data:   dict[str, pd.DataFrame],
@@ -197,10 +190,7 @@ def run_sweep(
     event_results: list[EventResult],
     sweep_params:  dict = None,
 ) -> pd.DataFrame:
-    """
-    Run all parameter combinations and return a summary DataFrame
-    sorted by Sharpe ratio descending.
-    """
+    """Run every combination of sweep_params and return a summary DataFrame."""
     if sweep_params is None:
         sweep_params = SWEEP_PARAMS
 
@@ -238,7 +228,7 @@ def run_sweep(
     return df
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _build_global_bar_index(
     bar_data: dict[str, pd.DataFrame],
@@ -257,10 +247,7 @@ def _build_score_lookup(
     current_bar: pd.Timestamp,
     model: str,
 ) -> dict[str, float]:
-    """
-    Compute current underreaction score for each open position.
-    Used for convergence-based exits.
-    """
+    """Current underreaction score per open position. Used for convergence exit."""
     from backtest.event_detector import measure_car
     from backtest.config import SECTOR_ETF
     scores: dict[str, float] = {}

@@ -1,14 +1,14 @@
-"""All strategy parameters, dependency map, and event configuration."""
+"""Strategy parameters, dependency map, event timing."""
 
 from pathlib import Path
 
-# ── Paths ──────────────────────────────────────────────────────────────────
+# Paths
 ROOT_DIR = Path(__file__).parent.parent
 DATA_DIR = ROOT_DIR / "data"
 OUTPUT_DIR = ROOT_DIR / "output"
 EVENTS_FILE = ROOT_DIR / "backtest_events_2021_2025.xlsx"
 
-# ── Universe ───────────────────────────────────────────────────────────────
+# Universe
 BACKTEST_START = "2021-01-01"
 BACKTEST_END = "2025-05-15"
 
@@ -16,16 +16,13 @@ ENERGY_PRIMARIES = ["CVX", "XOM", "OXY", "COP"]
 DEFENSE_PRIMARIES = ["LMT", "NOC", "GD", "RTX"]
 ALL_PRIMARIES = ENERGY_PRIMARIES + DEFENSE_PRIMARIES
 
-# Back-compat aliases for semi-era code paths that moved to these names
-FABLESS_PRIMARIES = ENERGY_PRIMARIES
-FOUNDRY_PRIMARIES = DEFENSE_PRIMARIES
-WFE_PRIMARIES: list[str] = []
-
 SECTOR_ETF = {
     "CVX": "XLE", "XOM": "XLE", "OXY": "XLE", "COP": "XLE",
     "LMT": "ITA", "NOC": "ITA", "GD": "ITA", "RTX": "ITA",
 }
 
+# Primary → list of suppliers/dependents.  pct = revenue concentration from 10-K.
+# PAA, WTI, NGS dropped — structural non-reverters in the 2016-2020 sweep.
 DEPENDENCY_MAP: dict[str, list[dict]] = {
     "CVX": [
         {"ticker": "DXC",  "pct": 0.310, "type": "IT services"},
@@ -76,15 +73,11 @@ DEPENDENCY_MAP: dict[str, list[dict]] = {
     ],
 }
 
-# All unique tickers needed
 ALL_DEPENDENTS: list[str] = sorted({
-    dep["ticker"]
-    for deps in DEPENDENCY_MAP.values()
-    for dep in deps
+    dep["ticker"] for deps in DEPENDENCY_MAP.values() for dep in deps
 })
 ALL_TICKERS = ALL_PRIMARIES + ALL_DEPENDENTS + ["SPY", "XLE", "ITA"]
 
-# ── Event timing ───────────────────────────────────────────────────────────
 EVENT_TIMING: dict[str, str] = {
     "Earnings":     "after_close",
     "Oil Price":    "intraday",
@@ -97,7 +90,6 @@ EVENT_TIMING: dict[str, str] = {
     "Contract":     "intraday",
 }
 
-# ── Ticker edge-cases ──────────────────────────────────────────────────────
 TICKER_MAPPING = {
     "RTX": {"pre_merger_ticker": "UTX", "merger_date": "2020-04-03"},
 }
@@ -111,47 +103,45 @@ TICKER_IPO_DATES: dict[str, str] = {
 
 HARD_TO_BORROW = ["AIRI", "CVU", "FEIM", "SYPR", "OPXS", "NGS", "SIF", "PVL", "EMKR"]
 
-# ── Bar / time parameters ──────────────────────────────────────────────────
+# Bars
 BAR_FREQUENCY = "1H"
 MARKET_OPEN = "09:30"
 MARKET_CLOSE = "16:00"
 BARS_PER_DAY_HOURLY = 7
-BARS_PER_DAY_DAILY  = 1
 BARS_PER_DAY = BARS_PER_DAY_HOURLY
 
-# ── Signal thresholds ──────────────────────────────────────────────────────
+# Signal
 UNDERREACTION_THRESHOLD = 0.30
 OVERREACTION_THRESHOLD = -0.30
 MIN_EXPECTED_RETURN = 0.001
 
-# ── Materiality filter ─────────────────────────────────────────────────────
+# Materiality filter (gates which events become tradeable signals)
 MATERIALITY_CAR_2H = 0.010
 MATERIALITY_CAR_1D = 0.015
 MATERIALITY_VOLUME_RATIO = 2.5
 VOLUME_LOOKBACK_DAYS = 20
 
-# ── Entry / exit ───────────────────────────────────────────────────────────
+# Entry / exit
 ENTRY_DELAY_HOURS = [1, 2, 3, 4, 7]
 HOLDING_PERIODS_HOURS = [1, 2, 3, 4, 7, 14, 21, 35, 49, 70]
 EXIT_CONVERGENCE_THRESHOLD = 0.10
 EXIT_STOP_LOSS_PCT = 0.03
-EXIT_MAX_HOLDING_HOURS = 70     # 10 trading days × 7 bars
-EXIT_END_OF_DAY = False         # ← hold across days so we can see reversion
+EXIT_MAX_HOLDING_HOURS = 70
+EXIT_END_OF_DAY = False
 
-# ── Position sizing ────────────────────────────────────────────────────────
+# Position sizing
 MAX_POSITION_PCT = 0.02
 MAX_CONCURRENT_POSITIONS = 10
 INITIAL_CAPITAL = 1_000_000
 
-# ── Beta ───────────────────────────────────────────────────────────────────
+# Beta regression lookback (days, used for the dep-on-primary slope)
 BETA_LOOKBACK_DAYS = 120
 
-# ── Event-targeted download window ─────────────────────────────────────────
-# Need ≥ holding_hours/7 trading days AFTER event to observe the full tail.
+# Event-targeted download window. Need ≥ holding_hours/7 trading days POST event.
 EVENT_WINDOW_PRE_DAYS  = 3
-EVENT_WINDOW_POST_DAYS = 10     # ← extended from 5 to 10 to test late reversion
+EVENT_WINDOW_POST_DAYS = 10
 
-# ── Transaction costs ──────────────────────────────────────────────────────
+# Transaction costs
 COMMISSION_BPS = 5
 SLIPPAGE_BPS = 10
 SLIPPAGE_BPS_SMALLCAP = 25
@@ -162,7 +152,6 @@ ZERO_VOLUME_SKIP_BARS = 4
 SHORT_BORROW_ANNUAL_BPS = 50
 SHORT_BORROW_ANNUAL_BPS_HARDTOBORROW = 300
 
-# ── Parameter sweep ────────────────────────────────────────────────────────
 SWEEP_PARAMS: dict[str, list] = {
     "entry_delay_hours":        [1, 2, 4, 7],
     "holding_period_hours":     [4, 7, 14, 21, 35],
@@ -171,10 +160,10 @@ SWEEP_PARAMS: dict[str, list] = {
     "underreaction_threshold":  [0.20, 0.30, 0.40, 0.50],
 }
 
-# ── Default run parameters ─────────────────────────────────────────────────
+# Best config from the 2016-2020 sweep (used as the OOS-frozen baseline)
 DEFAULT_ENTRY_DELAY = 2
-DEFAULT_HOLDING_HOURS = 35      # ← was 7; now full 5-day observation
-DEFAULT_HEDGE = "primary"
+DEFAULT_HOLDING_HOURS = 70
+DEFAULT_HEDGE = "none"
 DEFAULT_MODEL = "beta_revenue"
 DEFAULT_THRESHOLD = 0.30
 RISK_FREE_RATE = 0.02

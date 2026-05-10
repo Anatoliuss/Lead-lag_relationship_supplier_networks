@@ -1,9 +1,6 @@
-"""Regenerate IS and OOS equity curves + drawdown plots side-by-side.
+"""Regenerate IS (2016-2020) and OOS (2021-2025) plots side-by-side.
 
-Runs the best config on 2016-2020 events first, copies output plots to *_is.png,
-then re-runs on 2021-2025 events and copies to *_oos.png.
-
-Reads both events files directly without touching config.EVENTS_FILE.
+Runs the best config on each events file and saves charts as *_is.png / *_oos.png.
 """
 
 from __future__ import annotations

@@ -30,7 +30,7 @@ from backtest.signal_generator import Signal
 log = logging.getLogger(__name__)
 
 
-# ── Trade record ───────────────────────────────────────────────────────────
+
 
 @dataclass
 class Trade:
@@ -79,10 +79,7 @@ class Trade:
         exit_price_dep:  float,
         exit_price_prim: float,
     ) -> float:
-        """
-        Gross P&L from entry to exit.
-        Long dep, short hedge — dollar neutral.
-        """
+        """Gross P&L = dep leg ± hedge leg, signed by direction."""
         if self.direction == "long":
             dep_return  =  (exit_price_dep  - self.entry_price_dep)  / self.entry_price_dep
             prim_return = -(exit_price_prim - self.entry_price_prim) / self.entry_price_prim
@@ -138,7 +135,7 @@ class Trade:
         )
 
 
-# ── Portfolio ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class PortfolioSnapshot:
@@ -151,9 +148,7 @@ class PortfolioSnapshot:
 
 
 class Portfolio:
-    """
-    Tracks cash, open positions, and records all trades.
-    """
+    """Tracks cash, open positions, and records all trades."""
 
     def __init__(
         self,
@@ -199,10 +194,7 @@ class Portfolio:
         bar_data:      dict[str, pd.DataFrame],
         sector_etf_map:   dict[str, str],
     ) -> Optional[Trade]:
-        """
-        Open a new trade for *signal* at *entry_bar*.
-        Returns the Trade object, or None if entry is not possible.
-        """
+        """Open a new trade for *signal* at *entry_bar*. Returns None if blocked."""
         dep_ticker = signal.dependent_ticker
         primary    = signal.primary_ticker
 
@@ -295,11 +287,9 @@ class Portfolio:
         eod_exit:      bool  = True,
         convergence_threshold: float = EXIT_CONVERGENCE_THRESHOLD,
         stop_loss_pct: float = EXIT_STOP_LOSS_PCT,
-        signal_lookup: Optional[dict] = None,  # dep_ticker → latest underreaction score
+        signal_lookup: Optional[dict] = None,
     ) -> list[Trade]:
-        """
-        Evaluate exit conditions for all open trades.  Returns closed trades.
-        """
+        """Evaluate exit conditions for all open trades, returning the ones closed."""
         closed: list[Trade] = []
         to_close: list[tuple[str, str]] = []  # (dep_ticker, reason)
 
@@ -407,7 +397,7 @@ class Portfolio:
         return self._all_trades
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _get_close(
     bar_data: dict[str, pd.DataFrame],
